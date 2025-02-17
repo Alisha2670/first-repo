@@ -4,7 +4,6 @@ import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
-import sqlite3
 
 # Load environment variables from .env file
 load_dotenv()
@@ -35,12 +34,8 @@ class CartItem(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
 
 # Ensure tables are created when the app starts
-#with app.app_context():
- #   db.create_all()
 with app.app_context():
-    if not os.path.exists("app.db"):  # Prevents overwriting existing DB
-        db.create_all()
-
+    db.create_all()
 
 # Home route
 @app.route("/")
@@ -141,7 +136,7 @@ def update_user_cart(email, cart_items):
     user = User.query.filter_by(email=email).first()
     if user:
         # Clear existing cart and add new items
-    
+        CartItem.query.filter_by(user_id=user.id).delete()
         for item in cart_items:
             new_cart_item = CartItem(name=item["name"], quantity=item["quantity"], user_id=user.id)
             db.session.add(new_cart_item)
@@ -243,5 +238,3 @@ def update_quantity_in_cart(email, item_name, new_quantity):
 # Running the Flask app
 if __name__ == "__main__":
     app.run(host=os.environ.get("IP", "127.0.0.1"), port=int(os.environ.get("PORT", 5000)), debug=True)
-
-
