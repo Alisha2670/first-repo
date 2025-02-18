@@ -12,9 +12,11 @@ load_dotenv()
 app = Flask(__name__)
 
 # Set up SQLite database URI and secret key from environment variables
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("SQLALCHEMY_DATABASE_URI", "sqlite:///app.db")  # SQLite default path
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.secret_key = os.environ.get("SECRET_KEY","default_secret_key")
+
+
 
 # Initialize the database
 db = SQLAlchemy(app)
@@ -238,4 +240,3 @@ def update_quantity_in_cart(email, item_name, new_quantity):
 # Running the Flask app
 if __name__ == "__main__":
     app.run(host=os.environ.get("IP", "127.0.0.1"), port=int(os.environ.get("PORT", 5000)), debug=True)
-    
