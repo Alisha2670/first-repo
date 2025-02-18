@@ -85,15 +85,16 @@ def login():
 # Checkout route
 @app.route("/checkout", methods=["POST"])
 def checkout():
-    if request.method == "POST":
-        cart_items = request.json.get("cartItems", [])
-        user_email = session.get("email")
+    cart_items = request.json.get("cartItems", [])
+    user_email = session.get("email")
 
-        if user_email:
-            update_user_cart(user_email, cart_items)
-            return jsonify({"message": "Checkout successful"})
+    if user_email:
+        update_user_cart(user_email, cart_items)
+        db.session.commit()  # Ensure cart changes are saved
+        return jsonify({"message": "Checkout successful"})
 
     return jsonify({"error": "Invalid request"})
+
 
 # Profile route
 @app.route("/profile", methods=["GET", "POST"])
@@ -114,33 +115,38 @@ def profile():
 
 # Update user information
 def update_user_information():
-    new_username = request.form.get("username")
-    new_email = request.form.get("emailprofile")
-    new_password = request.form.get("passwordprofile")
-
     user_email = session.get("email")
     user_data = User.query.filter_by(email=user_email).first()
 
-    if new_username:
-        user_data.username = new_username
-    if new_email:
-        user_data.email = new_email
-    if new_password:
-        hashed_password = generate_password_hash(new_password, method="pbkdf2:sha256")
-        user_data.password = hashed_password
+    if user_data:
+        new_username = request.form.get("username")
+        new_email = request.form.get("emailprofile")
+        new_password = request.form.get("passwordprofile")
 
-    db.session.commit()
+        if new_username:
+            user_data.username = new_username
+        if new_email:
+            user_data.email = new_email
+        if new_password:
+            hashed_password = generate_password_hash(new_password, method="pbkdf2:sha256")
+            user_data.password = hashed_password
+
+        db.session.commit()  # Commit user updates to database
+
 
 # Update user cart
 def update_user_cart(email, cart_items):
     user = User.query.filter_by(email=email).first()
     if user:
-        # Clear existing cart and add new items
-        CartItem.query.filter_by(user_id=user.id).delete()
+        CartItem.query.filter_by(user_id=user.id).delete()  # Clear old cart items
+        db.session.commit()  # Commit deletion before adding new items
+
         for item in cart_items:
             new_cart_item = CartItem(name=item["name"], quantity=item["quantity"], user_id=user.id)
             db.session.add(new_cart_item)
-        db.session.commit()
+
+        db.session.commit()  # Commit new cart items
+
 
 # Remove item from cart
 def remove_item_from_cart(email, item_to_remove):
@@ -149,7 +155,8 @@ def remove_item_from_cart(email, item_to_remove):
         cart_item = CartItem.query.filter_by(user_id=user.id, name=item_to_remove["name"]).first()
         if cart_item:
             db.session.delete(cart_item)
-            db.session.commit()
+            db.session.commit()  # Commit deletion
+
 
 # Delete user account
 def delete_user():
@@ -162,42 +169,33 @@ def delete_user():
 # Signup route
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
-    username_exists = False
-    success_exists = session.pop("success_exists", False)
-
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
         confirm_password = request.form.get("confirm_password")
         email = request.form.get("email")
 
-        try:
-            existing_user = User.query.filter_by(username=username).first()
-
-            if existing_user:
-                flash("Username already exists", "error")
-                username_exists = True
-                return render_template("signup.html", username_exists=username_exists)
-
-            elif password != confirm_password:
-                flash("Passwords do not match", "error")
-                return render_template("signup.html", username_exists=username_exists)
-
-            hashed_password = generate_password_hash(password, method="pbkdf2:sha256")
-
-            new_user = User(username=username, email=email, password=hashed_password)
-            db.session.add(new_user)
-            db.session.commit()
-
-            session["success_exists"] = True
+        if password != confirm_password:
+            flash("Passwords do not match", "error")
             return redirect(url_for("signup"))
 
-        except Exception as e:
-            print(f"Error accessing or inserting user into SQLite: {e}")
-            flash("Error accessing or inserting user into SQLite", "error")
-            return render_template("signup.html", username_exists=username_exists)
+        existing_user = User.query.filter_by(email=email).first()
 
-    return render_template("signup.html", username_exists=username_exists, success_exists=success_exists)
+        if existing_user:
+            flash("Email already exists", "error")
+            return redirect(url_for("signup"))
+
+        # Hash the password and store the user in the database
+        hashed_password = generate_password_hash(password, method="pbkdf2:sha256")
+        new_user = User(username=username, email=email, password=hashed_password)
+
+        db.session.add(new_user)
+        db.session.commit()  # Ensure user is saved to the database
+
+        flash("Signup successful! Please log in.", "success")
+        return redirect(url_for("index"))
+
+    return render_template("signup.html")
 
 # API route for products (this can be static or from a database)
 @app.route("/api/products")
@@ -230,11 +228,14 @@ def update_quantity():
 # Update item quantity in cart
 def update_quantity_in_cart(email, item_name, new_quantity):
     user = User.query.filter_by(email=email).first()
-    cart_item = CartItem.query.filter_by(user_id=user.id, name=item_name).first()
-    if cart_item:
-        cart_item.quantity = new_quantity
-        db.session.commit()
+    if user:
+        cart_item = CartItem.query.filter_by(user_id=user.id, name=item_name).first()
+        if cart_item:
+            cart_item.quantity = new_quantity
+            db.session.commit()  # Commit quantity update
+
 
 # Running the Flask app
 if __name__ == "__main__":
     app.run(host=os.environ.get("IP", "127.0.0.1"), port=int(os.environ.get("PORT", 5000)), debug=True)
+    
