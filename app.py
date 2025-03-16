@@ -4,6 +4,7 @@ import json
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
+from pathlib import Path
 
 # Load environment variables from .env file
 load_dotenv()
@@ -12,11 +13,14 @@ load_dotenv()
 app = Flask(__name__)
 
 # Set up SQLite database URI and secret key from environment variables
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///app.db'
+basedir = os.path.abspath(os.path.dirname(__file__))
+db_path = os.path.join(basedir, 'app.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = f'sqlite:///{db_path}'
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.secret_key = os.environ.get("SECRET_KEY","default_secret_key")
 
-
+# Print database location
+print(f"Database location: {db_path}")
 
 # Initialize the database
 db = SQLAlchemy(app)
@@ -38,6 +42,11 @@ class CartItem(db.Model):
 # Ensure tables are created when the app starts
 with app.app_context():
     db.create_all()
+    # Debug: Print all users
+    users = User.query.all()
+    print(f"\nCurrent users in database:")
+    for user in users:
+        print(f"ID: {user.id}, Username: {user.username}, Email: {user.email}")
 
 # Home route
 @app.route("/")
@@ -72,13 +81,21 @@ def login():
     if request.method == "POST":
         email = request.form.get("email")
         password = request.form.get("password")
+        
+        print(f"Login attempt for email: {email}")
+        
         existing_user = User.query.filter_by(email=email).first()
         if existing_user and check_password_hash(existing_user.password, password):
+            print(f"Login successful for user ID: {existing_user.id}")
             flash("Login successful", "success")
             session["logged_in"] = True
             session["email"] = email
             return redirect(url_for("profile"))
         else:
+            if existing_user:
+                print("Login failed: incorrect password")
+            else:
+                print(f"Login failed: no user found with email {email}")
             flash("Invalid email or password", "error")
 
     session["logged_in"] = False
@@ -101,6 +118,19 @@ def checkout():
 # Profile route
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
+    if not session.get("logged_in") or not session.get("email"):
+        flash("Please log in to view your profile", "error")
+        return redirect(url_for("index"))
+
+    user_email = session.get("email")
+    user_data = User.query.filter_by(email=user_email).first()
+    
+    if not user_data:
+        # If user data is not found, clear the session and redirect
+        session.clear()
+        flash("User not found. Please log in again.", "error")
+        return redirect(url_for("index"))
+
     if request.method == "POST":
         if request.form.get("delete_profile"):
             delete_user()
@@ -110,8 +140,7 @@ def profile():
             session.clear()
             return redirect(url_for("index"))
 
-    user_email = session.get("email")
-    user_data = User.query.filter_by(email=user_email).first()
+    # Get cart items only if we have a valid user
     cart_items_from_db = CartItem.query.filter_by(user_id=user_data.id).all()
     return render_template("profile.html", user_data=user_data, cart_items_from_db=cart_items_from_db)
 
@@ -177,6 +206,18 @@ def signup():
         confirm_password = request.form.get("confirm_password")
         email = request.form.get("email")
 
+        # Add more detailed debugging logs
+        print("Form submission received")
+        print(f"Form data: {request.form}")
+        print(f"Username: {username}")
+        print(f"Email: {email}")
+        print(f"Password length: {len(password) if password else 0}")
+        
+        # Validate that all required fields are present
+        if not all([username, password, confirm_password, email]):
+            flash("All fields are required", "error")
+            return redirect(url_for("signup"))
+
         if password != confirm_password:
             flash("Passwords do not match", "error")
             return redirect(url_for("signup"))
@@ -187,17 +228,25 @@ def signup():
             flash("Email already exists", "error")
             return redirect(url_for("signup"))
 
-        # Hash the password and store the user in the database
-        hashed_password = generate_password_hash(password, method="pbkdf2:sha256")
-        new_user = User(username=username, email=email, password=hashed_password)
+        try:
+            # Hash the password and store the user in the database
+            hashed_password = generate_password_hash(password, method="pbkdf2:sha256")
+            new_user = User(username=username, email=email, password=hashed_password)
 
-        db.session.add(new_user)
-        db.session.commit()  # Ensure user is saved to the database
-
-        flash("Signup successful! Please log in.", "success")
-        return redirect(url_for("index"))
+            db.session.add(new_user)
+            db.session.commit()
+            print(f"New user created with ID: {new_user.id}")
+            
+            flash("Signup successful! Please log in.", "success")
+            return redirect(url_for("index"))
+        except Exception as e:
+            print(f"Error creating user: {str(e)}")
+            db.session.rollback()
+            flash("An error occurred during registration", "error")
+            return redirect(url_for("signup"))
 
     return render_template("signup.html")
+
 
 # API route for products (this can be static or from a database)
 @app.route("/api/products")
